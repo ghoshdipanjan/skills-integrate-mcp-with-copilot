@@ -132,19 +132,43 @@ def get_activities():
     """Get all activities with their participants."""
     conn = get_db()
     try:
-        rows = conn.execute("SELECT name, description, schedule, max_participants FROM activities").fetchall()
+        rows = conn.execute(
+            "SELECT name, description, schedule, max_participants FROM activities"
+        ).fetchall()
+
+        # Initialize result with activity details and empty participant lists
         result = {}
+        activity_names = []
         for row in rows:
-            participants = conn.execute(
-                "SELECT email FROM participants WHERE activity_name = ?",
-                (row["name"],)
-            ).fetchall()
-            result[row["name"]] = {
+            activity_name = row["name"]
+            activity_names.append(activity_name)
+            result[activity_name] = {
                 "description": row["description"],
                 "schedule": row["schedule"],
                 "max_participants": row["max_participants"],
-                "participants": [p["email"] for p in participants],
+                "participants": [],
             }
+
+        # If there are no activities, return early
+        if not activity_names:
+            return result
+
+        # Fetch all participants for the returned activities in a single query
+        placeholders = ",".join("?" for _ in activity_names)
+        participants_query = (
+            f"SELECT activity_name, email FROM participants "
+            f"WHERE activity_name IN ({placeholders})"
+        )
+        participant_rows = conn.execute(participants_query, activity_names).fetchall()
+
+        # Group participants by activity
+        for participant in participant_rows:
+            activity_name = participant["activity_name"]
+            email = participant["email"]
+            # Only add participants for activities present in the result
+            if activity_name in result:
+                result[activity_name]["participants"].append(email)
+
         return result
     finally:
         conn.close()
