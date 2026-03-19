@@ -209,11 +209,15 @@ def signup_for_activity(activity_name: str, email: str):
             raise HTTPException(status_code=400, detail="Activity is full")
 
         # Add student
-        conn.execute(
-            "INSERT INTO participants (activity_name, email) VALUES (?, ?)",
-            (activity_name, email)
-        )
-        conn.commit()
+        try:
+            conn.execute(
+                "INSERT INTO participants (activity_name, email) VALUES (?, ?)",
+                (activity_name, email)
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            # Handle race condition where another request signed up the same student concurrently
+            raise HTTPException(status_code=400, detail="Student is already signed up")
         return {"message": f"Signed up {email} for {activity_name}"}
     finally:
         conn.close()
