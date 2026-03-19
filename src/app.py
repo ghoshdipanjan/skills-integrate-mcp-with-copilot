@@ -116,8 +116,10 @@ def init_db():
         conn.close()
 
 
-# Initialize the database on startup
-init_db()
+# Initialize the database during FastAPI startup
+@app.on_event("startup")
+def startup_init_db() -> None:
+    init_db()
 
 
 @app.get("/")
