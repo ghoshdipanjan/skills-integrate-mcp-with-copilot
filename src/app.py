@@ -23,12 +23,15 @@ app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
 
 # Database setup
-DB_PATH = os.path.join(current_dir, "activities.db")
+DATA_DIR = Path(os.getenv("HSMS_DATA_DIR", current_dir.parent / "data"))
+DB_PATH = Path(os.getenv("HSMS_DB_PATH", str(DATA_DIR / "activities.db")))
 
 
 def get_db():
     """Get a database connection."""
-    conn = sqlite3.connect(DB_PATH)
+    # Ensure the directory for the database file exists
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH))
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
