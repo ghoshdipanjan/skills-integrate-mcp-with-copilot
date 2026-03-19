@@ -3,12 +3,15 @@ High School Management System API
 
 A super simple FastAPI application that allows students to view and sign up
 for extracurricular activities at Mergington High School.
+
+Uses SQLite for persistent storage so data survives server restarts.
 """
 
 from fastapi import FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 import os
+import sqlite3
 from pathlib import Path
 
 app = FastAPI(title="Mergington High School API",
@@ -19,63 +22,104 @@ current_dir = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=os.path.join(Path(__file__).parent,
           "static")), name="static")
 
-# In-memory activity database
-activities = {
-    "Chess Club": {
-        "description": "Learn strategies and compete in chess tournaments",
-        "schedule": "Fridays, 3:30 PM - 5:00 PM",
-        "max_participants": 12,
-        "participants": ["michael@mergington.edu", "daniel@mergington.edu"]
-    },
-    "Programming Class": {
-        "description": "Learn programming fundamentals and build software projects",
-        "schedule": "Tuesdays and Thursdays, 3:30 PM - 4:30 PM",
-        "max_participants": 20,
-        "participants": ["emma@mergington.edu", "sophia@mergington.edu"]
-    },
-    "Gym Class": {
-        "description": "Physical education and sports activities",
-        "schedule": "Mondays, Wednesdays, Fridays, 2:00 PM - 3:00 PM",
-        "max_participants": 30,
-        "participants": ["john@mergington.edu", "olivia@mergington.edu"]
-    },
-    "Soccer Team": {
-        "description": "Join the school soccer team and compete in matches",
-        "schedule": "Tuesdays and Thursdays, 4:00 PM - 5:30 PM",
-        "max_participants": 22,
-        "participants": ["liam@mergington.edu", "noah@mergington.edu"]
-    },
-    "Basketball Team": {
-        "description": "Practice and play basketball with the school team",
-        "schedule": "Wednesdays and Fridays, 3:30 PM - 5:00 PM",
-        "max_participants": 15,
-        "participants": ["ava@mergington.edu", "mia@mergington.edu"]
-    },
-    "Art Club": {
-        "description": "Explore your creativity through painting and drawing",
-        "schedule": "Thursdays, 3:30 PM - 5:00 PM",
-        "max_participants": 15,
-        "participants": ["amelia@mergington.edu", "harper@mergington.edu"]
-    },
-    "Drama Club": {
-        "description": "Act, direct, and produce plays and performances",
-        "schedule": "Mondays and Wednesdays, 4:00 PM - 5:30 PM",
-        "max_participants": 20,
-        "participants": ["ella@mergington.edu", "scarlett@mergington.edu"]
-    },
-    "Math Club": {
-        "description": "Solve challenging problems and participate in math competitions",
-        "schedule": "Tuesdays, 3:30 PM - 4:30 PM",
-        "max_participants": 10,
-        "participants": ["james@mergington.edu", "benjamin@mergington.edu"]
-    },
-    "Debate Team": {
-        "description": "Develop public speaking and argumentation skills",
-        "schedule": "Fridays, 4:00 PM - 5:30 PM",
-        "max_participants": 12,
-        "participants": ["charlotte@mergington.edu", "henry@mergington.edu"]
-    }
-}
+# Database setup
+DATA_DIR = Path(os.getenv("HSMS_DATA_DIR", current_dir.parent / "data"))
+DB_PATH = Path(os.getenv("HSMS_DB_PATH", str(DATA_DIR / "activities.db")))
+
+
+def get_db():
+    """Get a database connection."""
+    # Ensure the directory for the database file exists
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA foreign_keys = ON")
+    return conn
+
+
+def init_db():
+    """Initialize the database schema and seed data if empty."""
+    conn = get_db()
+    try:
+        conn.executescript("""
+            CREATE TABLE IF NOT EXISTS activities (
+                name TEXT PRIMARY KEY,
+                description TEXT NOT NULL,
+                schedule TEXT NOT NULL,
+                max_participants INTEGER NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS participants (
+                activity_name TEXT NOT NULL,
+                email TEXT NOT NULL,
+                PRIMARY KEY (activity_name, email),
+                FOREIGN KEY (activity_name) REFERENCES activities(name)
+                    ON DELETE CASCADE ON UPDATE CASCADE
+            );
+        """)
+
+        # Seed data only if the activities table is empty
+        count = conn.execute("SELECT COUNT(*) FROM activities").fetchone()[0]
+        if count == 0:
+            seed_data = [
+                ("Chess Club", "Learn strategies and compete in chess tournaments",
+                 "Fridays, 3:30 PM - 5:00 PM", 12),
+                ("Programming Class", "Learn programming fundamentals and build software projects",
+                 "Tuesdays and Thursdays, 3:30 PM - 4:30 PM", 20),
+                ("Gym Class", "Physical education and sports activities",
+                 "Mondays, Wednesdays, Fridays, 2:00 PM - 3:00 PM", 30),
+                ("Soccer Team", "Join the school soccer team and compete in matches",
+                 "Tuesdays and Thursdays, 4:00 PM - 5:30 PM", 22),
+                ("Basketball Team", "Practice and play basketball with the school team",
+                 "Wednesdays and Fridays, 3:30 PM - 5:00 PM", 15),
+                ("Art Club", "Explore your creativity through painting and drawing",
+                 "Thursdays, 3:30 PM - 5:00 PM", 15),
+                ("Drama Club", "Act, direct, and produce plays and performances",
+                 "Mondays and Wednesdays, 4:00 PM - 5:30 PM", 20),
+                ("Math Club", "Solve challenging problems and participate in math competitions",
+                 "Tuesdays, 3:30 PM - 4:30 PM", 10),
+                ("Debate Team", "Develop public speaking and argumentation skills",
+                 "Fridays, 4:00 PM - 5:30 PM", 12),
+            ]
+            conn.executemany(
+                "INSERT INTO activities (name, description, schedule, max_participants) VALUES (?, ?, ?, ?)",
+                seed_data
+            )
+
+            seed_participants = [
+                ("Chess Club", "michael@mergington.edu"),
+                ("Chess Club", "daniel@mergington.edu"),
+                ("Programming Class", "emma@mergington.edu"),
+                ("Programming Class", "sophia@mergington.edu"),
+                ("Gym Class", "john@mergington.edu"),
+                ("Gym Class", "olivia@mergington.edu"),
+                ("Soccer Team", "liam@mergington.edu"),
+                ("Soccer Team", "noah@mergington.edu"),
+                ("Basketball Team", "ava@mergington.edu"),
+                ("Basketball Team", "mia@mergington.edu"),
+                ("Art Club", "amelia@mergington.edu"),
+                ("Art Club", "harper@mergington.edu"),
+                ("Drama Club", "ella@mergington.edu"),
+                ("Drama Club", "scarlett@mergington.edu"),
+                ("Math Club", "james@mergington.edu"),
+                ("Math Club", "benjamin@mergington.edu"),
+                ("Debate Team", "charlotte@mergington.edu"),
+                ("Debate Team", "henry@mergington.edu"),
+            ]
+            conn.executemany(
+                "INSERT INTO participants (activity_name, email) VALUES (?, ?)",
+                seed_participants
+            )
+
+        conn.commit()
+    finally:
+        conn.close()
+
+
+# Initialize the database during FastAPI startup
+@app.on_event("startup")
+def startup_init_db() -> None:
+    init_db()
 
 
 @app.get("/")
@@ -85,48 +129,127 @@ def root():
 
 @app.get("/activities")
 def get_activities():
-    return activities
+    """Get all activities with their participants."""
+    conn = get_db()
+    try:
+        rows = conn.execute(
+            "SELECT name, description, schedule, max_participants FROM activities"
+        ).fetchall()
+
+        # Initialize result with activity details and empty participant lists
+        result = {}
+        activity_names = []
+        for row in rows:
+            activity_name = row["name"]
+            activity_names.append(activity_name)
+            result[activity_name] = {
+                "description": row["description"],
+                "schedule": row["schedule"],
+                "max_participants": row["max_participants"],
+                "participants": [],
+            }
+
+        # If there are no activities, return early
+        if not activity_names:
+            return result
+
+        # Fetch all participants for the returned activities in a single query
+        placeholders = ",".join("?" for _ in activity_names)
+        participants_query = (
+            f"SELECT activity_name, email FROM participants "
+            f"WHERE activity_name IN ({placeholders})"
+        )
+        participant_rows = conn.execute(participants_query, activity_names).fetchall()
+
+        # Group participants by activity
+        for participant in participant_rows:
+            activity_name = participant["activity_name"]
+            email = participant["email"]
+            # Only add participants for activities present in the result
+            if activity_name in result:
+                result[activity_name]["participants"].append(email)
+
+        return result
+    finally:
+        conn.close()
 
 
 @app.post("/activities/{activity_name}/signup")
 def signup_for_activity(activity_name: str, email: str):
     """Sign up a student for an activity"""
-    # Validate activity exists
-    if activity_name not in activities:
-        raise HTTPException(status_code=404, detail="Activity not found")
+    conn = get_db()
+    try:
+        # Validate activity exists
+        activity = conn.execute(
+            "SELECT name, max_participants FROM activities WHERE name = ?",
+            (activity_name,)
+        ).fetchone()
+        if not activity:
+            raise HTTPException(status_code=404, detail="Activity not found")
 
-    # Get the specific activity
-    activity = activities[activity_name]
+        # Validate student is not already signed up
+        existing = conn.execute(
+            "SELECT 1 FROM participants WHERE activity_name = ? AND email = ?",
+            (activity_name, email)
+        ).fetchone()
+        if existing:
+            raise HTTPException(status_code=400, detail="Student is already signed up")
 
-    # Validate student is not already signed up
-    if email in activity["participants"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Student is already signed up"
-        )
+        # Start a write transaction to enforce capacity atomically
+        conn.execute("BEGIN IMMEDIATE")
 
-    # Add student
-    activity["participants"].append(email)
-    return {"message": f"Signed up {email} for {activity_name}"}
+        # Check current number of participants against max_participants
+        current_count_row = conn.execute(
+            "SELECT COUNT(*) AS count FROM participants WHERE activity_name = ?",
+            (activity_name,)
+        ).fetchone()
+        current_count = current_count_row["count"] if isinstance(current_count_row, sqlite3.Row) else current_count_row[0]
+        max_participants = activity["max_participants"]
+        if max_participants is not None and current_count >= max_participants:
+            raise HTTPException(status_code=400, detail="Activity is full")
+
+        # Add student
+        try:
+            conn.execute(
+                "INSERT INTO participants (activity_name, email) VALUES (?, ?)",
+                (activity_name, email)
+            )
+            conn.commit()
+        except sqlite3.IntegrityError:
+            # Handle race condition where another request signed up the same student concurrently
+            raise HTTPException(status_code=400, detail="Student is already signed up")
+        return {"message": f"Signed up {email} for {activity_name}"}
+    finally:
+        conn.close()
 
 
 @app.delete("/activities/{activity_name}/unregister")
 def unregister_from_activity(activity_name: str, email: str):
     """Unregister a student from an activity"""
-    # Validate activity exists
-    if activity_name not in activities:
-        raise HTTPException(status_code=404, detail="Activity not found")
+    conn = get_db()
+    try:
+        # Validate activity exists
+        activity = conn.execute(
+            "SELECT name FROM activities WHERE name = ?",
+            (activity_name,)
+        ).fetchone()
+        if not activity:
+            raise HTTPException(status_code=404, detail="Activity not found")
 
-    # Get the specific activity
-    activity = activities[activity_name]
+        # Validate student is signed up
+        existing = conn.execute(
+            "SELECT 1 FROM participants WHERE activity_name = ? AND email = ?",
+            (activity_name, email)
+        ).fetchone()
+        if not existing:
+            raise HTTPException(status_code=400, detail="Student is not signed up for this activity")
 
-    # Validate student is signed up
-    if email not in activity["participants"]:
-        raise HTTPException(
-            status_code=400,
-            detail="Student is not signed up for this activity"
+        # Remove student
+        conn.execute(
+            "DELETE FROM participants WHERE activity_name = ? AND email = ?",
+            (activity_name, email)
         )
-
-    # Remove student
-    activity["participants"].remove(email)
-    return {"message": f"Unregistered {email} from {activity_name}"}
+        conn.commit()
+        return {"message": f"Unregistered {email} from {activity_name}"}
+    finally:
+        conn.close()
