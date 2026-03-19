@@ -195,6 +195,19 @@ def signup_for_activity(activity_name: str, email: str):
         if existing:
             raise HTTPException(status_code=400, detail="Student is already signed up")
 
+        # Start a write transaction to enforce capacity atomically
+        conn.execute("BEGIN IMMEDIATE")
+
+        # Check current number of participants against max_participants
+        current_count_row = conn.execute(
+            "SELECT COUNT(*) AS count FROM participants WHERE activity_name = ?",
+            (activity_name,)
+        ).fetchone()
+        current_count = current_count_row["count"] if isinstance(current_count_row, sqlite3.Row) else current_count_row[0]
+        max_participants = activity["max_participants"]
+        if max_participants is not None and current_count >= max_participants:
+            raise HTTPException(status_code=400, detail="Activity is full")
+
         # Add student
         conn.execute(
             "INSERT INTO participants (activity_name, email) VALUES (?, ?)",
